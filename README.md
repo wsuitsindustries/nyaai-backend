@@ -42,3 +42,10 @@ Copy `.env.example` to `.env` and configure:
 | `HOST`   | `0.0.0.0` | Bind address |
 | `PORT`   | `8000`  | Server port |
 | `NYA_API_KEY` | `""` | API key (optional, empty = open) |
+
+## Documentation
+
+See the [`docs/`](./docs/) folder for project-level documentation relevant to the backend:
+- [Architecture](./docs/ARCHITECTURE.md) — API design, routes, middleware
+- [Development](./docs/DEVELOPMENT.md) — setup, MongoDB, environment
+- [MVP Audit](./docs/MVP_AUDIT.md) — backend-specific gaps and action items
