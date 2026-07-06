@@ -1,7 +1,9 @@
+import time
 import uuid
+from collections import defaultdict
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
 from backend.models.schemas import UploadResponse
 from backend.database import get_db
 from backend.middleware.auth import get_current_user
@@ -16,13 +18,30 @@ ALLOWED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
+rate_limit_store: dict[str, list[float]] = defaultdict(list)
+RATE_LIMIT_MAX = 10
+RATE_LIMIT_WINDOW = 60
+
+
+def check_rate_limit(client_ip: str):
+    now = time.time()
+    window_start = now - RATE_LIMIT_WINDOW
+    timestamps = rate_limit_store[client_ip]
+    timestamps[:] = [t for t in timestamps if t > window_start]
+    if len(timestamps) >= RATE_LIMIT_MAX:
+        raise HTTPException(status_code=429, detail="Too many requests. Please wait before uploading again.")
+    timestamps.append(now)
+
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload(
+    request: Request,
     file: UploadFile = File(...),
     conversation_id: str = Form("default"),
     current_user: dict | None = Depends(get_current_user),
 ):
+    client_ip = request.client.host if request.client else "unknown"
+    check_rate_limit(client_ip)
     content = await file.read()
 
     if len(content) > MAX_UPLOAD_SIZE:

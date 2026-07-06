@@ -10,5 +10,15 @@ async def get_document_chunks() -> list[str]:
     return chunks
 
 
+async def get_document_chunks_with_sources() -> list[dict]:
+    db = get_db()
+    cursor = db.documents.find({"status": "ready"}, {"filename": 1, "chunk_texts": 1})
+    items = []
+    async for doc in cursor:
+        for chunk in doc.get("chunk_texts", []):
+            items.append({"text": chunk, "filename": doc.get("filename", "Unknown")})
+    return items
+
+
 async def all_chunks() -> list[str]:
     return await get_document_chunks()
