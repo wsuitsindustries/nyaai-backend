@@ -1,22 +1,17 @@
-from fastapi import APIRouter, HTTPException
-from backend.models.schemas import (
-    DocumentListResponse,
-    DocumentResponse,
-    DocumentStatusResponse,
-    DocumentStatus,
-)
+from fastapi import APIRouter, HTTPException, Depends
+from backend.models.schemas import DocumentListResponse, DocumentResponse, DocumentStatusResponse
 from backend.database import get_db
+from backend.middleware.auth import get_current_user
 
 router = APIRouter()
 
 
 @router.get("/documents", response_model=DocumentListResponse)
-async def list_documents():
+async def list_documents(current_user: dict | None = Depends(get_current_user)):
     db = get_db()
-    cursor = db.documents.find(
-        {},
-        {"text": 0, "chunk_texts": 0},
-    ).sort("uploaded_at", -1)
+    user_id = current_user["email"] if current_user else None
+    filter_query = {"user_id": user_id} if user_id else {}
+    cursor = db.documents.find(filter_query, {"text": 0, "chunk_texts": 0}).sort("uploaded_at", -1)
     docs = []
     async for doc in cursor:
         docs.append(DocumentResponse(
@@ -32,7 +27,7 @@ async def list_documents():
 
 
 @router.get("/documents/{doc_id}/status", response_model=DocumentStatusResponse)
-async def get_document_status(doc_id: str):
+async def get_document_status(doc_id: str, current_user: dict | None = Depends(get_current_user)):
     db = get_db()
     doc = await db.documents.find_one({"id": doc_id}, {"status": 1})
     if not doc:
@@ -41,7 +36,7 @@ async def get_document_status(doc_id: str):
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(doc_id: str):
+async def delete_document(doc_id: str, current_user: dict | None = Depends(get_current_user)):
     db = get_db()
     result = await db.documents.delete_one({"id": doc_id})
     if result.deleted_count == 0:
@@ -51,7 +46,7 @@ async def delete_document(doc_id: str):
 
 
 @router.post("/documents/{doc_id}/reindex", response_model=DocumentStatusResponse)
-async def reindex_document(doc_id: str):
+async def reindex_document(doc_id: str, current_user: dict | None = Depends(get_current_user)):
     db = get_db()
     doc = await db.documents.find_one({"id": doc_id})
     if not doc:
@@ -63,10 +58,6 @@ async def reindex_document(doc_id: str):
 
     await db.documents.update_one(
         {"id": doc_id},
-        {"$set": {
-            "status": "ready",
-            "chunks": len(chunks),
-            "chunk_texts": chunks,
-        }},
+        {"$set": {"status": "ready", "chunks": len(chunks), "chunk_texts": chunks}},
     )
     return DocumentStatusResponse(id=doc_id, status="ready")

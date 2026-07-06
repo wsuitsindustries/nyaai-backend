@@ -14,6 +14,9 @@ pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 @router.post("/register", response_model=TokenResponse)
 async def register(req: RegisterRequest):
+    if len(req.password) < 6:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password must be at least 6 characters")
+
     db = get_db()
     existing = await db.users.find_one({"email": req.email.lower().strip()})
     if existing:

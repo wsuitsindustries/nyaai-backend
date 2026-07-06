@@ -40,7 +40,7 @@ class _AsyncIterator:
     def __init__(self, docs: list[dict]):
         self._iter = iter(docs)
 
-    def __anext__(self) -> dict:
+    async def __anext__(self) -> dict:
         try:
             return next(self._iter)
         except StopIteration:
@@ -64,7 +64,12 @@ class _Collection:
     def find(self, filter: dict, projection: dict | None = None) -> _Cursor:
         matched = [doc for doc in self._docs if self._matches(doc, filter)]
         if projection:
-            matched = [{k: d.get(k) for k in projection if k != "_id"} for d in matched]
+            is_exclusion = all(v == 0 for v in projection.values())
+            if is_exclusion:
+                exclude = set(k for k, v in projection.items() if v == 0)
+                matched = [{k: d[k] for k in d if k not in exclude} for d in matched]
+            else:
+                matched = [{k: d.get(k) for k in projection if (k != "_id" and projection.get(k))} for d in matched]
         return _Cursor(matched)
 
     async def insert_one(self, doc: dict) -> None:

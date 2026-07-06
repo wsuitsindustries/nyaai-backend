@@ -1,16 +1,17 @@
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from backend.models.schemas import ChatRequest, ChatResponse, Source
 from backend.database import get_db
 from backend.services.document import get_document_chunks
+from backend.middleware.auth import get_current_user
 
 router = APIRouter()
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, current_user: dict | None = Depends(get_current_user)):
     chunks = await get_document_chunks()
 
     from ai.rag import answer_with_rag
@@ -21,10 +22,12 @@ async def chat(req: ChatRequest):
 
     db = get_db()
     now = datetime.now(timezone.utc)
+    user_id = current_user["email"] if current_user else None
 
     await db.messages.insert_one({
         "id": str(uuid.uuid4()),
         "conversation_id": req.conversation_id,
+        "user_id": user_id,
         "role": "user",
         "content": req.message,
         "created_at": now,
@@ -34,6 +37,7 @@ async def chat(req: ChatRequest):
     await db.messages.insert_one({
         "id": msg_id,
         "conversation_id": req.conversation_id,
+        "user_id": user_id,
         "role": "assistant",
         "content": answer,
         "sources": [s.model_dump() for s in sources],
@@ -45,6 +49,7 @@ async def chat(req: ChatRequest):
         {
             "$setOnInsert": {
                 "id": req.conversation_id,
+                "user_id": user_id,
                 "title": req.message[:60],
                 "created_at": now,
                 "updated_at": now,

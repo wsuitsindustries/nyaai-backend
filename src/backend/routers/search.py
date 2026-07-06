@@ -1,13 +1,14 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from backend.models.schemas import SearchRequest, SearchResponse
-from backend.services.document import get_document_chunks, all_chunks
+from backend.services.document import all_chunks
+from backend.middleware.auth import get_current_user
 
 router = APIRouter()
 
 
 @router.post("/search", response_model=SearchResponse)
-async def search(req: SearchRequest):
-    from ai.retrieval import retrieve
+async def search(req: SearchRequest, current_user: dict | None = Depends(get_current_user)):
+    from ai.retrieval import retrieve_texts
     chunks = await all_chunks()
-    results = retrieve(req.query, chunks, top_k=req.top_k)
+    results = retrieve_texts(req.query, chunks, top_k=req.top_k)
     return SearchResponse(results=results)
