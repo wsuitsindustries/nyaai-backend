@@ -51,10 +51,11 @@ async def upload(
     if ext not in {"txt", "md", "csv", "json", "pdf", "doc", "docx"}:
         raise HTTPException(status_code=400, detail="Unsupported file type. Allowed: txt, md, csv, json, pdf, doc, docx")
 
+    from backend.utils.document_parser import parse_document
     try:
-        text = content.decode("utf-8")
-    except UnicodeDecodeError:
-        text = content.decode("utf-8", errors="replace")
+        text = parse_document(content, file.filename or "")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
 
     from ai.chunking import chunk_text
     chunks = chunk_text(text)
@@ -94,7 +95,6 @@ async def upload(
                 "user_id": user_id,
                 "title": f"Upload: {file.filename}",
                 "created_at": now,
-                "updated_at": now,
             },
             "$push": {"document_ids": doc_id},
             "$set": {"updated_at": now},

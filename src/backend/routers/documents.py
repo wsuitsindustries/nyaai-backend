@@ -52,12 +52,21 @@ async def reindex_document(doc_id: str, current_user: dict | None = Depends(get_
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    text = doc.get("text", "")
+    file_doc = await db.files.find_one({"id": doc_id})
+    if file_doc and "content" in file_doc:
+        from backend.utils.document_parser import parse_document
+        try:
+            text = parse_document(file_doc["content"], doc.get("filename", ""))
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
+    else:
+        text = doc.get("text", "")
+
     from ai.chunking import chunk_text
     chunks = chunk_text(text)
 
     await db.documents.update_one(
         {"id": doc_id},
-        {"$set": {"status": "ready", "chunks": len(chunks), "chunk_texts": chunks}},
+        {"$set": {"status": "ready", "chunks": len(chunks), "text": text, "chunk_texts": chunks}},
     )
     return DocumentStatusResponse(id=doc_id, status="ready")

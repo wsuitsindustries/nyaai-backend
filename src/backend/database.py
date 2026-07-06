@@ -1,7 +1,4 @@
-"""In-memory database — drop-in replacement for MongoDB/motor during development.
-
-Switches to MongoDB automatically when MONGO_URI is set and reachable.
-"""
+"""Database — MongoDB via motor, with in-memory fallback."""
 
 from __future__ import annotations
 
@@ -9,12 +6,21 @@ import copy
 import os
 from datetime import datetime, timezone
 
+import motor.motor_asyncio
 
-# ── In-memory collections ──────────────────────────────────────
+from backend.config import MONGO_URI, MONGO_DB
+
+
+# ── Module state ───────────────────────────────────────────────
+
+_db = None          # motor database handle (or None if in-memory)
+_use_mongo = False
+_collections: dict[str, "_Collection"] = {}
+
+
+# ── In-memory fallback (identical API to motor) ────────────────
 
 class _Cursor:
-    """Async cursor that mimics motor's cursor interface."""
-
     def __init__(self, docs: list[dict], sort_key: str | None = None, sort_dir: int = 1):
         self._docs = docs
         self._sort_key = sort_key
@@ -32,7 +38,10 @@ class _Cursor:
     def _sort_copy(self) -> list[dict]:
         docs = copy.deepcopy(self._docs)
         if self._sort_key:
-            docs.sort(key=lambda d: d.get(self._sort_key, ""), reverse=self._sort_dir == -1)
+            docs.sort(
+                key=lambda d: d.get(self._sort_key, ""),
+                reverse=self._sort_dir == -1,
+            )
         return docs
 
 
@@ -48,8 +57,6 @@ class _AsyncIterator:
 
 
 class _Collection:
-    """In-memory collection that mirrors motor's async collection API."""
-
     def __init__(self):
         self._docs: list[dict] = []
 
@@ -69,7 +76,10 @@ class _Collection:
                 exclude = set(k for k, v in projection.items() if v == 0)
                 matched = [{k: d[k] for k in d if k not in exclude} for d in matched]
             else:
-                matched = [{k: d.get(k) for k in projection if (k != "_id" and projection.get(k))} for d in matched]
+                matched = [
+                    {k: d.get(k) for k in projection if (k != "_id" and projection.get(k))}
+                    for d in matched
+                ]
         return _Cursor(matched)
 
     async def insert_one(self, doc: dict) -> None:
@@ -85,7 +95,7 @@ class _Collection:
             self._apply_update(new_doc, update)
             self._docs.append(new_doc)
 
-    async def delete_one(self, filter: dict) -> type("_Result", (), {"deleted_count": 0}):
+    async def delete_one(self, filter: dict):
         for i, doc in enumerate(self._docs):
             if self._matches(doc, filter):
                 self._docs.pop(i)
@@ -118,30 +128,45 @@ class _Collection:
                     doc.setdefault(k, []).append(v)
 
 
-# ── Module state ───────────────────────────────────────────────
+# ── MongoDB connection ─────────────────────────────────────────
 
-_collections: dict[str, _Collection] = {}
+async def connect_db():
+    global _db, _use_mongo, _collections
+    if not MONGO_URI:
+        print(f"[db] MONGO_URI not set — using in-memory storage")
+        return
+
+    try:
+        client = motor.motor_asyncio.AsyncIOMotorClient(
+            MONGO_URI, serverSelectionTimeoutMS=3000
+        )
+        await client.admin.command("ping")
+        _db = client[MONGO_DB]
+        _use_mongo = True
+        _collections.clear()  # drop any in-memory data
+        print(f"[db] Connected to MongoDB at {MONGO_URI}/{MONGO_DB}")
+    except Exception as e:
+        print(f"[db] MongoDB unavailable ({e}) — using in-memory storage")
 
 
-def _get_collection(name: str) -> _Collection:
+async def close_db():
+    global _db, _use_mongo, _collections
+    if _use_mongo and _db is not None:
+        _db.client.close()
+    _db = None
+    _use_mongo = False
+    _collections.clear()
+
+
+def _get_collection(name: str):
+    if _use_mongo and _db is not None:
+        return _db[name]
     if name not in _collections:
         _collections[name] = _Collection()
     return _collections[name]
 
 
-# ── Public API (mirrors motor's async interface) ───────────────
-
-async def connect_db():
-    pass  # Nothing to connect — data lives in memory
-
-
-async def close_db():
-    _collections.clear()
-
-
 def get_db() -> object:
-    """Returns a db-like object with async collection accessors."""
-
     class _DB:
         @property
         def users(self): return _get_collection("users")

@@ -68,7 +68,6 @@ async def chat(req: ChatRequest, current_user: dict | None = Depends(get_current
                 "user_id": user_id,
                 "title": req.message[:60],
                 "created_at": now,
-                "updated_at": now,
             },
             "$set": {"updated_at": now},
         },
