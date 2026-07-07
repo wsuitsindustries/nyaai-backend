@@ -20,5 +20,22 @@ async def get_document_chunks_with_sources() -> list[dict]:
     return items
 
 
+async def get_document_chunks_with_embeddings() -> tuple[list[str], list[list[float]] | None]:
+    db = get_db()
+    cursor = db.documents.find({"status": "ready"}, {"chunk_texts": 1, "chunk_embeddings": 1})
+    chunks = []
+    embeddings = []
+    has_embeddings = True
+    async for doc in cursor:
+        texts = doc.get("chunk_texts", [])
+        embs = doc.get("chunk_embeddings", [])
+        chunks.extend(texts)
+        if embs and len(embs) == len(texts):
+            embeddings.extend(embs)
+        else:
+            has_embeddings = False
+    return chunks, embeddings if has_embeddings else None
+
+
 async def all_chunks() -> list[str]:
     return await get_document_chunks()

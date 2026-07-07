@@ -51,15 +51,6 @@ async def upload(
     if ext not in {"txt", "md", "csv", "json", "pdf", "doc", "docx"}:
         raise HTTPException(status_code=400, detail="Unsupported file type. Allowed: txt, md, csv, json, pdf, doc, docx")
 
-    from backend.utils.document_parser import parse_document
-    try:
-        text = parse_document(content, file.filename or "")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
-
-    from ai.chunking import chunk_text
-    chunks = chunk_text(text)
-
     db = get_db()
     doc_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -71,13 +62,45 @@ async def upload(
         "filename": file.filename,
         "size": len(content),
         "uploaded_at": now,
-        "status": "ready",
-        "chunks": len(chunks),
+        "status": "uploading",
+        "chunks": 0,
         "conversation_id": conversation_id,
-        "text": text,
-        "chunk_texts": chunks,
+        "text": "",
+        "chunk_texts": [],
+        "chunk_embeddings": [],
         "error": None,
     })
+
+    from backend.utils.document_parser import parse_document
+    try:
+        await db.documents.update_one({"id": doc_id}, {"$set": {"status": "extracting"}})
+        text = parse_document(content, file.filename or "")
+    except Exception as e:
+        await db.documents.update_one({"id": doc_id}, {"$set": {"status": "failed", "error": str(e)}})
+        raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
+
+    from ai.chunking import chunk_text
+    await db.documents.update_one({"id": doc_id}, {"$set": {"status": "chunking"}})
+    chunks = chunk_text(text)
+
+    await db.documents.update_one({"id": doc_id}, {"$set": {"status": "embedding"}})
+
+    from ai.embeddings import embed
+    chunk_embeddings = [embed(chunk) for chunk in chunks]
+
+    await db.documents.update_one(
+        {"id": doc_id},
+        {
+            "$set": {
+                "status": "ready",
+                "chunks": len(chunks),
+                "text": text,
+                "chunk_texts": chunks,
+                "chunk_embeddings": chunk_embeddings,
+                "error": None,
+            }
+        },
+    )
 
     await db.files.insert_one({
         "id": doc_id,

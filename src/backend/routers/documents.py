@@ -65,8 +65,11 @@ async def reindex_document(doc_id: str, current_user: dict | None = Depends(get_
     from ai.chunking import chunk_text
     chunks = chunk_text(text)
 
+    from ai.embeddings import embed
+    chunk_embeddings = [embed(chunk) for chunk in chunks]
+
     await db.documents.update_one(
         {"id": doc_id},
-        {"$set": {"status": "ready", "chunks": len(chunks), "text": text, "chunk_texts": chunks}},
+        {"$set": {"status": "ready", "chunks": len(chunks), "text": text, "chunk_texts": chunks, "chunk_embeddings": chunk_embeddings}},
     )
     return DocumentStatusResponse(id=doc_id, status="ready")
