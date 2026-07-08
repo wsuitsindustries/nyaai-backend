@@ -26,7 +26,7 @@ def parse_pdf(content: bytes) -> str:
         return extracted_text
     except Exception as e:
         logger.error(f"Error parsing PDF file: {e}", exc_info=True)
-        raise ValueError(f"Failed to parse PDF document: {str(e)}")
+        raise ValueError("Failed to parse PDF document")
 
 def parse_docx(content: bytes) -> str:
     """Extracts text from a DOCX file using python-docx."""
@@ -60,7 +60,7 @@ def parse_docx(content: bytes) -> str:
         return extracted_text
     except Exception as e:
         logger.error(f"Error parsing DOCX file: {e}", exc_info=True)
-        raise ValueError(f"Failed to parse DOCX document: {str(e)}")
+        raise ValueError("Failed to parse DOCX document")
 
 def parse_doc_fallback(content: bytes) -> str:
     """Fallback text extractor for legacy .doc binary documents or other binary text types."""

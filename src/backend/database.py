@@ -143,10 +143,11 @@ async def connect_db():
         await client.admin.command("ping")
         _db = client[MONGO_DB]
         _use_mongo = True
-        _collections.clear()  # drop any in-memory data
-        print(f"[db] Connected to MongoDB at {MONGO_URI}/{MONGO_DB}")
+        _collections.clear()
+        host = MONGO_URI.split("@")[-1].split("/")[0] if "@" in MONGO_URI else MONGO_URI.split("//")[-1].split("/")[0]
+        print(f"[db] Connected to MongoDB at {host}/{MONGO_DB}")
     except Exception as e:
-        print(f"[db] MongoDB unavailable ({e}) — using in-memory storage")
+        print(f"[db] MongoDB unavailable — using in-memory storage")
 
 
 async def close_db():

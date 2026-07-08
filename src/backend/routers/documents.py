@@ -2,7 +2,9 @@ from fastapi import APIRouter, HTTPException, Depends
 from backend.models.schemas import DocumentListResponse, DocumentResponse, DocumentStatusResponse
 from backend.database import get_db
 from backend.middleware.auth import get_current_user
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -21,7 +23,7 @@ async def list_documents(current_user: dict | None = Depends(get_current_user)):
             uploaded_at=doc["uploaded_at"],
             status=doc.get("status", "ready"),
             chunks=doc.get("chunks", 0),
-            error=doc.get("error"),
+            error=None,
         ))
     return DocumentListResponse(documents=docs)
 
@@ -57,8 +59,8 @@ async def reindex_document(doc_id: str, current_user: dict | None = Depends(get_
         from backend.utils.document_parser import parse_document
         try:
             text = parse_document(file_doc["content"], doc.get("filename", ""))
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Failed to parse document. The file may be corrupted or in an unsupported format.")
     else:
         text = doc.get("text", "")
 
@@ -66,7 +68,10 @@ async def reindex_document(doc_id: str, current_user: dict | None = Depends(get_
     chunks = chunk_text(text)
 
     from ai.embeddings import embed
-    chunk_embeddings = [embed(chunk) for chunk in chunks]
+    try:
+        chunk_embeddings = [await embed(chunk) for chunk in chunks]
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to generate embeddings. Please try again.")
 
     await db.documents.update_one(
         {"id": doc_id},

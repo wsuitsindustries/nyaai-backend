@@ -75,9 +75,9 @@ async def upload(
     try:
         await db.documents.update_one({"id": doc_id}, {"$set": {"status": "extracting"}})
         text = parse_document(content, file.filename or "")
-    except Exception as e:
-        await db.documents.update_one({"id": doc_id}, {"$set": {"status": "failed", "error": str(e)}})
-        raise HTTPException(status_code=400, detail=f"Failed to parse document: {str(e)}")
+    except Exception:
+        await db.documents.update_one({"id": doc_id}, {"$set": {"status": "failed", "error": "parse_failed"}})
+        raise HTTPException(status_code=400, detail="Failed to parse document. The file may be corrupted or in an unsupported format.")
 
     from ai.chunking import chunk_text
     await db.documents.update_one({"id": doc_id}, {"$set": {"status": "chunking"}})
@@ -86,7 +86,11 @@ async def upload(
     await db.documents.update_one({"id": doc_id}, {"$set": {"status": "embedding"}})
 
     from ai.embeddings import embed
-    chunk_embeddings = [embed(chunk) for chunk in chunks]
+    try:
+        chunk_embeddings = [await embed(chunk) for chunk in chunks]
+    except Exception:
+        await db.documents.update_one({"id": doc_id}, {"$set": {"status": "failed", "error": "embed_failed"}})
+        raise HTTPException(status_code=500, detail="Failed to generate embeddings. Please try again.")
 
     await db.documents.update_one(
         {"id": doc_id},

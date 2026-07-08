@@ -1,4 +1,6 @@
+import asyncio
 import sys
+import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -9,15 +11,21 @@ sys.path.insert(0, str(AI_DIR / "src"))
 from dotenv import load_dotenv
 load_dotenv(AI_DIR / ".env")
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from backend.config import HOST, PORT, CORS_ORIGINS
 from backend.database import connect_db, close_db
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
+    from ai.embeddings import embed
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, lambda: __import__("asyncio").run(embed("warmup")))
     yield
     await close_db()
 
@@ -37,6 +45,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"},
+    )
+
 
 from backend.routers import auth, chat, upload, search, documents
 

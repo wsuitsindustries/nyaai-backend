@@ -10,5 +10,5 @@ router = APIRouter()
 async def search(req: SearchRequest, current_user: dict | None = Depends(get_current_user)):
     from ai.retrieval import retrieve_texts
     chunks = await all_chunks()
-    results = retrieve_texts(req.query, chunks, top_k=req.top_k)
+    results = await retrieve_texts(req.query, chunks, top_k=req.top_k)
     return SearchResponse(results=results)
