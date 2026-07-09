@@ -1,4 +1,3 @@
-import asyncio
 import os
 import sys
 import logging
@@ -27,9 +26,11 @@ logger = logging.getLogger(__name__)
 _rate_limit_store: dict[str, list[float]] = {}
 RATE_LIMIT = 30  # requests
 RATE_WINDOW = 60  # seconds
+_last_rl_cleanup = 0.0
 
 
 async def rate_limit_middleware(request: Request, call_next):
+    global _last_rl_cleanup
     client_ip = request.client.host if request.client else "unknown"
     now = time.time()
     timestamps = _rate_limit_store.get(client_ip, [])
@@ -38,15 +39,19 @@ async def rate_limit_middleware(request: Request, call_next):
         return JSONResponse(status_code=429, content={"detail": "Too many requests. Please slow down."})
     timestamps.append(now)
     _rate_limit_store[client_ip] = timestamps
+
+    if now - _last_rl_cleanup > RATE_WINDOW:
+        _last_rl_cleanup = now
+        expired = [ip for ip, ts in _rate_limit_store.items() if max(ts) < now - RATE_WINDOW]
+        for ip in expired:
+            del _rate_limit_store[ip]
+
     return await call_next(request)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await connect_db()
-    from ai.embeddings import embed
-    loop = asyncio.get_event_loop()
-    loop.run_in_executor(None, lambda: __import__("asyncio").run(embed("warmup")))
     yield
     await close_db()
 

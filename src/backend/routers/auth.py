@@ -17,9 +17,11 @@ pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 _auth_attempts: dict[str, list[float]] = {}
 AUTH_MAX_ATTEMPTS = 5
 AUTH_WINDOW = 300  # 5 minutes
+_last_auth_cleanup = 0.0
 
 
 def _check_auth_rate_limit(ip: str) -> None:
+    global _last_auth_cleanup
     now = time.time()
     attempts = _auth_attempts.get(ip, [])
     attempts = [t for t in attempts if now - t < AUTH_WINDOW]
@@ -30,6 +32,12 @@ def _check_auth_rate_limit(ip: str) -> None:
         )
     attempts.append(now)
     _auth_attempts[ip] = attempts
+
+    if now - _last_auth_cleanup > AUTH_WINDOW:
+        _last_auth_cleanup = now
+        expired = [ip for ip, ts in _auth_attempts.items() if max(ts) < now - AUTH_WINDOW]
+        for ip in expired:
+            del _auth_attempts[ip]
 
 
 @router.post("/register", response_model=TokenResponse)

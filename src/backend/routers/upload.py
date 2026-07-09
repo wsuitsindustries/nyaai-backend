@@ -1,6 +1,5 @@
 import time
 import uuid
-from collections import defaultdict
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Request
@@ -18,19 +17,28 @@ ALLOWED_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
-rate_limit_store: dict[str, list[float]] = defaultdict(list)
+rate_limit_store: dict[str, list[float]] = {}
 RATE_LIMIT_MAX = 10
 RATE_LIMIT_WINDOW = 60
+_last_cleanup = 0.0
 
 
 def check_rate_limit(client_ip: str):
+    global _last_cleanup
     now = time.time()
     window_start = now - RATE_LIMIT_WINDOW
-    timestamps = rate_limit_store[client_ip]
-    timestamps[:] = [t for t in timestamps if t > window_start]
+    timestamps = rate_limit_store.get(client_ip, [])
+    timestamps = [t for t in timestamps if t > window_start]
     if len(timestamps) >= RATE_LIMIT_MAX:
         raise HTTPException(status_code=429, detail="Too many requests. Please wait before uploading again.")
     timestamps.append(now)
+    rate_limit_store[client_ip] = timestamps
+
+    if now - _last_cleanup > RATE_LIMIT_WINDOW:
+        _last_cleanup = now
+        expired = [ip for ip, ts in rate_limit_store.items() if max(ts) < window_start]
+        for ip in expired:
+            del rate_limit_store[ip]
 
 
 @router.post("/upload", response_model=UploadResponse)
