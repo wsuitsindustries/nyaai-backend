@@ -23,8 +23,10 @@ async def chat(req: ChatRequest, current_user: dict | None = Depends(get_current
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    user_id = current_user["email"] if current_user else None
+
     try:
-        chunks, chunk_embeddings = await get_document_chunks_with_embeddings()
+        chunks, chunk_embeddings = await get_document_chunks_with_embeddings(user_id)
     except Exception:
         raise HTTPException(status_code=503, detail="Knowledge base is temporarily unavailable. Please try again.")
 
@@ -39,7 +41,7 @@ async def chat(req: ChatRequest, current_user: dict | None = Depends(get_current
 
     source_lookup = {}
     try:
-        async for doc in get_db().documents.find({"status": "ready"}, {"filename": 1, "chunk_texts": 1}):
+        async for doc in get_db().documents.find({"status": "ready", **({"user_id": user_id} if user_id else {})}, {"filename": 1, "chunk_texts": 1}):
             for chunk in doc.get("chunk_texts", []):
                 source_lookup[chunk] = doc.get("filename", "Document")
     except Exception:
@@ -55,7 +57,6 @@ async def chat(req: ChatRequest, current_user: dict | None = Depends(get_current
 
     db = get_db()
     now = datetime.now(timezone.utc)
-    user_id = current_user["email"] if current_user else None
 
     try:
         await db.messages.insert_one({
@@ -79,7 +80,7 @@ async def chat(req: ChatRequest, current_user: dict | None = Depends(get_current
         })
 
         await db.conversations.update_one(
-            {"id": req.conversation_id},
+            {"id": req.conversation_id, "user_id": user_id},
             {
                 "$setOnInsert": {
                     "id": req.conversation_id,
@@ -104,8 +105,10 @@ async def chat_stream(req: ChatRequest, current_user: dict | None = Depends(get_
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
+    user_id = current_user["email"] if current_user else None
+
     try:
-        chunks, chunk_embeddings = await get_document_chunks_with_embeddings()
+        chunks, chunk_embeddings = await get_document_chunks_with_embeddings(user_id)
     except Exception:
         raise HTTPException(status_code=503, detail="Knowledge base is temporarily unavailable.")
 
@@ -113,7 +116,6 @@ async def chat_stream(req: ChatRequest, current_user: dict | None = Depends(get_
 
     db = get_db()
     now = datetime.now(timezone.utc)
-    user_id = current_user["email"] if current_user else None
 
     try:
         await db.messages.insert_one({
@@ -129,7 +131,7 @@ async def chat_stream(req: ChatRequest, current_user: dict | None = Depends(get_
 
     source_lookup = {}
     try:
-        async for doc in db.documents.find({"status": "ready"}, {"filename": 1, "chunk_texts": 1}):
+        async for doc in db.documents.find({"status": "ready", **({"user_id": user_id} if user_id else {})}, {"filename": 1, "chunk_texts": 1}):
             for chunk in doc.get("chunk_texts", []):
                 source_lookup[chunk] = doc.get("filename", "Document")
     except Exception:
@@ -177,7 +179,7 @@ async def chat_stream(req: ChatRequest, current_user: dict | None = Depends(get_
             })
 
             await db.conversations.update_one(
-                {"id": req.conversation_id},
+                {"id": req.conversation_id, "user_id": user_id},
                 {
                     "$setOnInsert": {
                         "id": req.conversation_id,

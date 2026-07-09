@@ -12,7 +12,9 @@ router = APIRouter()
 async def list_documents(current_user: dict | None = Depends(get_current_user)):
     db = get_db()
     user_id = current_user["email"] if current_user else None
-    filter_query = {"user_id": user_id} if user_id else {}
+    if user_id is None:
+        return DocumentListResponse(documents=[])
+    filter_query = {"user_id": user_id}
     cursor = db.documents.find(filter_query, {"text": 0, "chunk_texts": 0}).sort("uploaded_at", -1)
     docs = []
     async for doc in cursor:
@@ -31,7 +33,8 @@ async def list_documents(current_user: dict | None = Depends(get_current_user)):
 @router.get("/documents/{doc_id}/status", response_model=DocumentStatusResponse)
 async def get_document_status(doc_id: str, current_user: dict | None = Depends(get_current_user)):
     db = get_db()
-    doc = await db.documents.find_one({"id": doc_id}, {"status": 1})
+    user_id = current_user["email"] if current_user else None
+    doc = await db.documents.find_one({"id": doc_id, **({"user_id": user_id} if user_id else {})}, {"status": 1})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
     return DocumentStatusResponse(id=doc_id, status=doc.get("status", "ready"))
@@ -40,9 +43,11 @@ async def get_document_status(doc_id: str, current_user: dict | None = Depends(g
 @router.delete("/documents/{doc_id}")
 async def delete_document(doc_id: str, current_user: dict | None = Depends(get_current_user)):
     db = get_db()
-    result = await db.documents.delete_one({"id": doc_id})
-    if result.deleted_count == 0:
+    user_id = current_user["email"] if current_user else None
+    doc = await db.documents.find_one({"id": doc_id, **({"user_id": user_id} if user_id else {})}, {"id": 1})
+    if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
+    await db.documents.delete_one({"id": doc_id})
     await db.files.delete_one({"id": doc_id})
     return {"ok": True}
 
@@ -50,11 +55,12 @@ async def delete_document(doc_id: str, current_user: dict | None = Depends(get_c
 @router.post("/documents/{doc_id}/reindex", response_model=DocumentStatusResponse)
 async def reindex_document(doc_id: str, current_user: dict | None = Depends(get_current_user)):
     db = get_db()
-    doc = await db.documents.find_one({"id": doc_id})
+    user_id = current_user["email"] if current_user else None
+    doc = await db.documents.find_one({"id": doc_id, **({"user_id": user_id} if user_id else {})})
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    file_doc = await db.files.find_one({"id": doc_id})
+    file_doc = await db.files.find_one({"id": doc_id, "user_id": user_id}) if user_id else None
     if file_doc and "content" in file_doc:
         from backend.utils.document_parser import parse_document
         try:

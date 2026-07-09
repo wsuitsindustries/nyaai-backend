@@ -1,6 +1,8 @@
 import asyncio
+import os
 import sys
 import logging
+import time
 from pathlib import Path
 from contextlib import asynccontextmanager
 
@@ -14,10 +16,29 @@ load_dotenv(AI_DIR / ".env")
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from backend.config import HOST, PORT, CORS_ORIGINS
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from backend.config import HOST, PORT, CORS_ORIGINS, JWT_SECRET
 from backend.database import connect_db, close_db
 
 logger = logging.getLogger(__name__)
+
+# ── Simple in-memory rate limiter ───────────────────────────────
+
+_rate_limit_store: dict[str, list[float]] = {}
+RATE_LIMIT = 30  # requests
+RATE_WINDOW = 60  # seconds
+
+
+async def rate_limit_middleware(request: Request, call_next):
+    client_ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    timestamps = _rate_limit_store.get(client_ip, [])
+    timestamps = [t for t in timestamps if now - t < RATE_WINDOW]
+    if len(timestamps) >= RATE_LIMIT:
+        return JSONResponse(status_code=429, content={"detail": "Too many requests. Please slow down."})
+    timestamps.append(now)
+    _rate_limit_store[client_ip] = timestamps
+    return await call_next(request)
 
 
 @asynccontextmanager
@@ -34,9 +55,11 @@ app = FastAPI(
     title="Nya AI API",
     version="0.3.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if os.getenv("ENV", "development") != "production" else None,
+    redoc_url="/redoc" if os.getenv("ENV", "development") != "production" else None,
 )
+
+app.middleware("http")(rate_limit_middleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +68,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+if os.getenv("ENV", "development") == "production":
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=[origin.split("://")[-1].split(":")[0] for origin in CORS_ORIGINS],
+    )
+
+logger.info(f"JWT_SECRET is {'SET' if JWT_SECRET and JWT_SECRET != 'change-me-in-production' else 'NOT SET — using auto-generated'}")
 
 
 @app.exception_handler(Exception)

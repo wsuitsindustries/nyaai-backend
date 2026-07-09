@@ -1,18 +1,24 @@
 from backend.database import get_db
 
 
-async def get_document_chunks() -> list[str]:
+def _build_filter(user_id: str | None = None) -> dict:
+    if user_id is None:
+        return {"_id": None}
+    return {"status": "ready", "user_id": user_id}
+
+
+async def get_document_chunks(user_id: str | None = None) -> list[str]:
     db = get_db()
-    cursor = db.documents.find({"status": "ready"}, {"chunk_texts": 1})
+    cursor = db.documents.find(_build_filter(user_id), {"chunk_texts": 1})
     chunks = []
     async for doc in cursor:
         chunks.extend(doc.get("chunk_texts", []))
     return chunks
 
 
-async def get_document_chunks_with_sources() -> list[dict]:
+async def get_document_chunks_with_sources(user_id: str | None = None) -> list[dict]:
     db = get_db()
-    cursor = db.documents.find({"status": "ready"}, {"filename": 1, "chunk_texts": 1})
+    cursor = db.documents.find(_build_filter(user_id), {"filename": 1, "chunk_texts": 1})
     items = []
     async for doc in cursor:
         for chunk in doc.get("chunk_texts", []):
@@ -20,9 +26,9 @@ async def get_document_chunks_with_sources() -> list[dict]:
     return items
 
 
-async def get_document_chunks_with_embeddings() -> tuple[list[str], list[list[float]] | None]:
+async def get_document_chunks_with_embeddings(user_id: str | None = None) -> tuple[list[str], list[list[float]] | None]:
     db = get_db()
-    cursor = db.documents.find({"status": "ready"}, {"chunk_texts": 1, "chunk_embeddings": 1})
+    cursor = db.documents.find(_build_filter(user_id), {"chunk_texts": 1, "chunk_embeddings": 1})
     chunks = []
     embeddings = []
     has_embeddings = True
@@ -37,5 +43,5 @@ async def get_document_chunks_with_embeddings() -> tuple[list[str], list[list[fl
     return chunks, embeddings if has_embeddings else None
 
 
-async def all_chunks() -> list[str]:
-    return await get_document_chunks()
+async def all_chunks(user_id: str | None = None) -> list[str]:
+    return await get_document_chunks(user_id)
